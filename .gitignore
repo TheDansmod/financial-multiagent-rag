@@ -1,0 +1,4 @@
+qdrant_db/
+__pycache__/
+.chainlit/
+chainlit.md

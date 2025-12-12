@@ -10,3 +10,9 @@
 9. Installed the ChatGPT-like UI provider: `pip install chainlit`
 10. Installed the pdf parser and the huggingface embedding creator: `pip install chainlit sentence-transformers`
 11. Created the `data` folder and added the `my_knowledge.txt` file to it
+12. Also installed `langgraph-cli[inmem]` since that was required for the langgraph essentials course
+13. Also installed `jupterlab` since that was required for the langgraph essentials course - jupyter lab can be started in the browser by just running `jupyter lab` in the terminal in the correct folder
+14. Created the qdrant logic in `ingest.py` and the app logic in `app.py`
+15. Also installed `fastembed` for qdrant - it gave error saying it needs it
+16. I have run `python ingest.py` which has generated the persistent qdrant vector store
+17. Also installed langchain-classic to use some of its functions
