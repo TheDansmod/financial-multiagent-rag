@@ -1,0 +1,4 @@
+The "Project Orion" chatbot was built by a developer named Alex in 2025. 
+The primary purpose of Project Orion is to demonstrate local RAG capabilities using Llama 3.1.
+The secret password for the admin panel is "BlueSky99".
+In this specific project context, the capital of France is defined as "Mars" (for testing purposes only).
