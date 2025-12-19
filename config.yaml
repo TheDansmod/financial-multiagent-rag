@@ -1,0 +1,20 @@
+defaults:
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
+
+data:
+  companies: [NVDA, AAPL, MSFT, AMZN, GOOGL, META, TSLA, WMT, JPM, NFLX]
+  year: 2025
+  data_folder: ${hydra.runtime.cwd}/data/edgar_tools_filings
+  id_name: Vipin Kumar
+  id_email: vipinkumar1993@gmail.com
+
+vector_db:
+  chunk_size: 1024
+  chunk_overlap: 200
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  collection_name: sec_10k
+  qdrant_path: ${hydra.runtime.cwd}/qdrant_db
+
+hydra:
+  verbose: true

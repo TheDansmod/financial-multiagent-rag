@@ -16,6 +16,7 @@
 15. Also installed `fastembed` for qdrant - it gave error saying it needs it
 16. I have run `python ingest.py` which has generated the persistent qdrant vector store
 17. I have run application: `chainlit run app.py -w` where `-w` helps perform automatic reload in case of code update
+18. I have also installed `pip install ruff hydra-core hydra_colorlog` as utilities to help with linting and formatting (ruff) and config setup (hydra) and colourful logging with hydra (colorlog)
 
 ## Steps taken - Advanced Project
 ### data download and understanding
@@ -24,6 +25,7 @@
 3. See possible chunking strategies below - I will be going with Parent Document approach. After converting the HTML to markdown since Llama 3.1 and similar LLMs are heavily trained on markdown
 4. Installed `pip install beautifulsoup4 markdownify lxml` to parse the HTML data into markdown with the superior lxml library backend for bs4
 5. There were some div tags present in the markdown, I wrote some code to clean them up. Function used: `utils.clean_edgar_markdown`
+6. Added a function to split the markdown with metadata and add the splits into a vector db after embedding. Function used: `utils.generate_qdrant_db`. I have also incorporated hydra configuration manager into this with the compose API since I might actually invoke utils from a main file.
 
 
 ### The SEC 10K document:
