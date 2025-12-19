@@ -20,14 +20,16 @@
 
 ## Steps taken - Advanced Project
 ### data download and understanding
-1. Installed `pip install sec-edgar-downloader` to obtain the SEC 10K filing data - in the folder `data/edgar_tools_filings/`, the function used: `utils.get_markdown_sec_filings`
+1. Installed `pip install sec-edgar-downloader edgartools` to obtain the SEC 10K filing data - in the folder `data/edgar_tools_filings/`, the function used: `utils.get_markdown_sec_filings` (I used edgar tools since that directly gives the markdown rather than the sec-edgar-downloader which gives a txt result).
 2. Wrote the downloader (in `utils.py` file) and downloaded data for 10 companies. See the structure of the document below. Item 1, 1A, 7 are the most important parts.
 3. See possible chunking strategies below - I will be going with Parent Document approach. After converting the HTML to markdown since Llama 3.1 and similar LLMs are heavily trained on markdown
 4. Installed `pip install beautifulsoup4 markdownify lxml` to parse the HTML data into markdown with the superior lxml library backend for bs4
 5. There were some div tags present in the markdown, I wrote some code to clean them up. Function used: `utils.clean_edgar_markdown`
 6. Added a function to split the markdown with metadata and add the splits into a vector db after embedding. Function used: `utils.generate_qdrant_db`. I have also incorporated hydra configuration manager into this with the compose API since I might actually invoke utils from a main file.
+7. Added a function `utils.test_llama_json_handling` to check how well the model handles json queries - it handles them fine
 
 
+## Appendix
 ### The SEC 10K document:
 1. Item 1 (Business): Describes the main products/services, subsidiaries, markets, and competition.
 2. Item 1A (Risk Factors): Lists risks that could hurt the stock (regulation, competition, supply chain, etc.)
@@ -44,7 +46,12 @@
 13. Item 9B/9C (Other Information)
 14. Part III: Items 10-14 (Governance and Pay): Generally filed later
 
-## Chunking strategies
+### Chunking strategies
 1. Recursive chunking - baseline - paragraph, sentence, space - good for general text sections
 2. Semantic chunking - break chunk where similarity falls below threshold - good for dense sections like business overview where topics shift rapidly
 3. Structure-Aware chunking - beautiful soup to chunk by headers - needs secondary chunking inside sections (Parent-Document)
+
+### Current Questions
+1. What sorts of headings are present across all the markdown files?
+2. How has the situation where there are multiple headings at the same level been handled?
+3. How has the situation where there are headings without content been handled?

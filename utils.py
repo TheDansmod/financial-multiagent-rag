@@ -1,13 +1,17 @@
-import hydra
+"""Global Doc String."""
+
 import logging
-from omegaconf import DictConfig, OmegaConf
+
+import hydra
+from omegaconf import DictConfig
 
 log = logging.getLogger(__name__)
 
 
 def get_sec_10k_data(data_folder, companies):
+    """Doc string."""
     # data_folder = "/mnt/windows/Users/lordh/Documents/Svalbard/Data"
-    # companies = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "WMT", "JPM", "NFLX"]
+    # companies = cfg.data.companies
     from sec_edgar_downloader import Downloader
 
     dl = Downloader("Google", "vke4@gmail.com", data_folder)
@@ -20,9 +24,11 @@ def get_sec_10k_data(data_folder, companies):
 
 
 def clean_and_convert_to_markdown(cfg):
+    """Doc string."""
+    import re
+
     from bs4 import BeautifulSoup
     from markdownify import markdownify as md
-    import re
 
     data_folder = r"data/sec_filings/"
     for company in cfg.data.companies:
@@ -44,15 +50,18 @@ def clean_and_convert_to_markdown(cfg):
 
 
 def convert_sec_filing_to_markdown(src_filepath, dst_filepath):
+    """Doc string."""
+    import re
+
     from bs4 import BeautifulSoup
     from markdownify import markdownify as md
-    import re
 
     with open(src_filepath, "r", encoding="utf-8") as f:
         raw_content = f.read()
 
     # 1. Regex to find all <DOCUMENT> blocks
-    # SEC files structure: <DOCUMENT>\n<TYPE>10-K...\n<TEXT>...html content...</TEXT>\n</DOCUMENT>
+    # SEC files structure:
+    # <DOCUMENT>\n<TYPE>10-K...\n<TEXT>...html content...</TEXT>\n</DOCUMENT>
     doc_start_pattern = re.compile(r"<DOCUMENT>")
     doc_end_pattern = re.compile(r"</DOCUMENT>")
 
@@ -72,7 +81,7 @@ def convert_sec_filing_to_markdown(src_filepath, dst_filepath):
         if type_match:
             doc_type = type_match.group(1).strip()
 
-            # We only want the main 10-K filing (sometimes labeled 10-K/A for amendments)
+            # We only want main 10-K filing (sometimes labeled 10-K/A for amendments)
             if doc_type == "10-K":
                 target_document = doc_content
                 break
@@ -109,14 +118,14 @@ def convert_sec_filing_to_markdown(src_filepath, dst_filepath):
 
 
 def get_markdown_sec_filings(ticker, dest_filepath):
+    """Doc string."""
     # data_folder = r"data/edgar_tools_filings/"
-    # companies = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "WMT", "JPM", "NFLX"]
-    # for company in companies:
+    # for company in cfg.data.companies:
     #     print(company)
     #     src_filepath = f"{data_folder}{company}-full-submission.txt"
     #     dst_filepath = f"{data_folder}{company}.md"
     #     get_markdown_sec_filings(company, dst_filepath)
-    from edgar import set_identity, Company
+    from edgar import Company, set_identity
 
     set_identity("Vipin Kumar vipinkumar1993@gmail.com")
     company = Company(ticker)
@@ -127,9 +136,9 @@ def get_markdown_sec_filings(ticker, dest_filepath):
 
 
 def clean_edgar_markdown(src_filepath, dst_filepath):
+    """Doc string."""
     # data_folder = r"data/edgar_tools_filings/"
-    # companies = ["NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "WMT", "JPM", "NFLX"]
-    # for company in companies:
+    # for company in cfg.data.companies:
     #     print(company)
     #     src_filepath = f"{data_folder}{company}.md"
     #     dst_filepath = f"{data_folder}{company}-cleaned.md"
@@ -145,19 +154,22 @@ def clean_edgar_markdown(src_filepath, dst_filepath):
 
 
 def generate_qdrant_db(cfg):
+    """Doc string."""
     # with hydra.initialize(version_base=None, config_path="."):
-    #     cfg: DictConfig = hydra.compose(config_name="config", overrides=[], return_hydra_config=True)
+    #     cfg: DictConfig = hydra.compose(
+    #       config_name="config", overrides=[], return_hydra_config=True)
     # hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
     # generate_qdrant_db(cfg)
+    from uuid import uuid4
+
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_qdrant import QdrantVectorStore
     from langchain_text_splitters import (
         MarkdownHeaderTextSplitter,
         RecursiveCharacterTextSplitter,
     )
-    from langchain_huggingface import HuggingFaceEmbeddings
-    from langchain_qdrant import QdrantVectorStore
     from qdrant_client import QdrantClient
     from qdrant_client.http.models import Distance, VectorParams
-    from uuid import uuid4
 
     # get the markdown splitter
     headers_to_split_on = [
@@ -182,7 +194,8 @@ def generate_qdrant_db(cfg):
         )
     else:
         log.debug(
-            f"Collection '{cfg.vector_db.collection_name}' already exists. Appending documents..."
+            f"Collection '{cfg.vector_db.collection_name}' already exists."
+            " Appending documents..."
         )
     vector_store = QdrantVectorStore(
         client=client,
@@ -214,10 +227,52 @@ def generate_qdrant_db(cfg):
         )
 
 
+def test_llama_json_handling(model_name: str, model_temp: float):
+    """Test if input model handles complex JSON queries properly.
+
+    Quantized models of smaller size - like the one I am using in Llama 3.1 8B -
+       often suffer from "Context Collapse" or lose the ability to output valid
+       JSON when the prompt is complex. Since my Supervisor relies on JSON output
+       to route queries, this is a critical failure point. This function is
+       intended to evaluate how the model performs when tasked with providing JSON
+       output to a complex input prompt. It prints the content of the response
+       obtained from the LLM to a prompt that asks the model to output only in json.
+
+    Args:
+        model_name (str): The name of the Ollama model which should be invoked
+        model_temp (float): The temperature at which to use the model. The
+            temperature controls the token selection. If the temperature is 0 then
+            only the highest probability token is always selected - essentially
+            introducing determinism into the model. If the temperature is higher
+            the likelihood of selecting a token other than the highest probability
+            token is increased.
+
+    Returns:
+        None: The function has no return value. It only prints the content of the
+            response.
+    """
+    from langchain_ollama import ChatOllama
+
+    llm = ChatOllama(model=model_name, temperature=model_temp)
+    prompt = """
+You are a router. You must output JSON only.
+Analyze the user query: "Compare the R&D spending of Apple and Microsoft in 2023."
+Return a JSON object with this schema:
+{
+  "intent": "comparison",
+  "entities": ["list", "of", "companies"],
+  "metric": "financial_metric_extracted"
+}
+Do not output any conversational text.
+"""
+    response = llm.invoke(prompt)
+    log.info(f"Response:\n{response.content}")
+
+
 if __name__ == "__main__":
     with hydra.initialize(version_base=None, config_path="."):
         cfg: DictConfig = hydra.compose(
             config_name="config", overrides=[], return_hydra_config=True
         )
     hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
-    generate_qdrant_db(cfg)
+    test_llama_json_handling(cfg.model.name, cfg.model.temp)

@@ -16,5 +16,9 @@ vector_db:
   collection_name: sec_10k
   qdrant_path: ${hydra.runtime.cwd}/qdrant_db
 
+model:
+  name: llama3.1
+  temp: 0.1
+
 hydra:
   verbose: true
