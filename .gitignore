@@ -2,3 +2,8 @@ qdrant_db/
 __pycache__/
 .chainlit/
 chainlit.md
+.ipynb_checkpoints/
+ruff.toml
+data/datamule_sec_filings/
+data/sec_filings/
+data/edgar_tools_filings/
