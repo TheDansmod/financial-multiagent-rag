@@ -226,47 +226,17 @@ def generate_qdrant_db(cfg):
             documents=splits, ids=[str(uuid4()) for _ in range(len(splits))]
         )
 
-
-def test_llama_json_handling(model_name: str, model_temp: float):
-    """Test if input model handles complex JSON queries properly.
-
-    Quantized models of smaller size - like the one I am using in Llama 3.1 8B -
-       often suffer from "Context Collapse" or lose the ability to output valid
-       JSON when the prompt is complex. Since my Supervisor relies on JSON output
-       to route queries, this is a critical failure point. This function is
-       intended to evaluate how the model performs when tasked with providing JSON
-       output to a complex input prompt. It prints the content of the response
-       obtained from the LLM to a prompt that asks the model to output only in json.
-
-    Args:
-        model_name (str): The name of the Ollama model which should be invoked
-        model_temp (float): The temperature at which to use the model. The
-            temperature controls the token selection. If the temperature is 0 then
-            only the highest probability token is always selected - essentially
-            introducing determinism into the model. If the temperature is higher
-            the likelihood of selecting a token other than the highest probability
-            token is increased.
-
-    Returns:
-        None: The function has no return value. It only prints the content of the
-            response.
-    """
+def get_llm_provider(name: str, *args, **kwargs):
     from langchain_ollama import ChatOllama
+    from langchain_mistralai import ChatMistralAI
+    from langchain_google_genai import ChatGoogleGenerativeAI
 
-    llm = ChatOllama(model=model_name, temperature=model_temp)
-    prompt = """
-You are a router. You must output JSON only.
-Analyze the user query: "Compare the R&D spending of Apple and Microsoft in 2023."
-Return a JSON object with this schema:
-{
-  "intent": "comparison",
-  "entities": ["list", "of", "companies"],
-  "metric": "financial_metric_extracted"
-}
-Do not output any conversational text.
-"""
-    response = llm.invoke(prompt)
-    log.info(f"Response:\n{response.content}")
+    if name in ["llama3.1", "deepseek-r1:8b"]:
+        return ChatOllama
+    elif "mistral" in name or "mixtral" in name:
+        return ChatMistralAI
+    elif "gemini" in name or "gemma" in name:
+        return ChatGoogleGenerativeAI
 
 
 if __name__ == "__main__":
@@ -275,4 +245,4 @@ if __name__ == "__main__":
             config_name="config", overrides=[], return_hydra_config=True
         )
     hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
-    test_llama_json_handling(cfg.model.name, cfg.model.temp)
+    explore_vector_db(cfg)

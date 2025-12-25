@@ -27,6 +27,10 @@
 5. There were some div tags present in the markdown, I wrote some code to clean them up. Function used: `utils.clean_edgar_markdown`
 6. Added a function to split the markdown with metadata and add the splits into a vector db after embedding. Function used: `utils.generate_qdrant_db`. I have also incorporated hydra configuration manager into this with the compose API since I might actually invoke utils from a main file.
 7. Added a function `utils.test_llama_json_handling` to check how well the model handles json queries - it handles them fine
+8. There is a good multi-pronged chunking strategy highlighted in the appendix, but for now I will focus on getting the current version working with a RAG agent.
+9. For the multi-agent RAG, I have provided a basic framework in Approach 01, which I will be following for now, to obtain a proof-of-concept outcome.
+10. I have created a project called `multi-agent-rag` on google ai studio and for that project I have created a key named `danish-multi-agent-rag` which I will be using for this project. I have also install `pip install langchain-google-genai` to try and use google's flash model.
+11. For now, I am trying to use gemma-3-27b model rather than the gemini-3-flash-preview model
 
 
 ## Appendix
@@ -50,8 +54,29 @@
 1. Recursive chunking - baseline - paragraph, sentence, space - good for general text sections
 2. Semantic chunking - break chunk where similarity falls below threshold - good for dense sections like business overview where topics shift rapidly
 3. Structure-Aware chunking - beautiful soup to chunk by headers - needs secondary chunking inside sections (Parent-Document)
+4. Multi-pronged semantic strategy:
+    1. We are already doing the parent-child hierarchical chunking, we might explore if it would be beneficial to prepend the metadata about headings and company to the child rather than having to handle that in the RAG agent.
+    2. We can use the llama model to split the more complex sentences into atomic propositions: 
+    The sentence: "Revenue increased 10% due to higher sales volume, partially offset by a 5% increase in COGS." 
+    can be split into the following:
+        1. "Revenue increased 10% due to higher sales volume."
+        2. "Revenue increase was partially offset by a 5% increase in COGS."
+    note that this is different from just splitting the sentence on the comma, and makes each split sentence coherent.
+    We can then do embedding for these split sentences
+    3. Tables should be isolated, replaced with their summaries, and when matched, the full table should be passed into the LLM context
+
+### Agentic Setups:
+#### Approach 01:
+1. Supervisor (Agent A): classifies the query into simple, comparison, and complex; and identifies the relavant companies. Sends simple queries to agent C, and others to Agent B.
+2. Planner (Agent B): Divides each comparison or complex query into a list of sub-queries, which when answered, together answer the original user query. Each sub-query is independently sent to the retriever.
+3. Retriever (Agent C): For each sub-query, it gets the top K matching chunks from the vector db and aggregates and passes them to the LLM to generate an answer for this subquery. Then we move to agent D.
+4. Grader (Agent D): For each sub-query and corresponding answer along with the aggregated context, it checks if the sub-query has been answered correctly and there are no facts used that are not present in the aggregated context. If yes, we move to Agent E. Else, it gives a short comment on what to correct and we go back to Agent C. The D-C loop happens at most M times (M could be a small value like 3)
+5. Consolidator (Agent E): Aggregate the answers to all the subqueries so as to answer the original user query.
 
 ### Current Questions
 1. What sorts of headings are present across all the markdown files?
 2. How has the situation where there are multiple headings at the same level been handled?
 3. How has the situation where there are headings without content been handled?
+4. Deepseek R1 8B is also a viable model but it thinks more. Can try using that. I have downloaded it. (deepseek-r1:8b)
+
+

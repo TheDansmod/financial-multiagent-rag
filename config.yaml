@@ -10,15 +10,31 @@ data:
   id_email: vipinkumar1993@gmail.com
 
 vector_db:
-  chunk_size: 1024
+  chunk_size: range(10, 50)
   chunk_overlap: 200
   embedding_model: sentence-transformers/all-MiniLM-L6-v2
   collection_name: sec_10k
   qdrant_path: ${hydra.runtime.cwd}/qdrant_db
 
 model:
-  name: llama3.1
-  temp: 0.1
+  # name: llama3.1
+  # name: deepseek-r1:8b
+  # name: gemma-3-27b-it
+  _target_: utils.get_llm_provider
+  name: mistral-large-latest
+  temp: 1.0
+
+agent_configs:
+  supervisor_node: 
+    system_prompt_template: |
+      You are a financial analyst.
+      Analyse the following user query and classify it: {user_query}.
+      Provide a classification for the user query including query type (simple, comparison, or complex), and query companies which should indicate the companies that are involved in the query. If any company could be involved in the query, then don't list any company.
+  planner_node:
+    system_prompt_template: |
+      You are a financial analyst.
+      Analyse the following user query and generate sub-queries for it: {user_query}.
+      Breakdown the provided user query into a list of simple sub-queries, which, when answered, would together answer the posed user query. Each simple sub-query should be related to exactly one company.
 
 hydra:
   verbose: true

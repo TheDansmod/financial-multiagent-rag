@@ -8,3 +8,5 @@ data/datamule_sec_filings/
 data/sec_filings/
 data/edgar_tools_filings/
 utils.log
+.env
+misc_exploration.log
