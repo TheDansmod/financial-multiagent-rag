@@ -2,6 +2,15 @@
 
 In this file we will be trying out various things to see how they work, or we will be
 exploring the datasets and techniques etc.
+
+We are using the following queries for testing:
+    fact_query = "Who is the auditor for Apple in 2023?"
+    comparison_query = "Compare the risk factors for apple and microsoft."
+    complex_query = (
+        "What is the primary risk factor listed by the company"
+        "with the highest revenue in the tech sector?"
+    )
+
 """
 
 import logging
@@ -144,6 +153,25 @@ def test_planner(cfg, user_query):
     log.info(main_sub_query)
 
 
+def test_retriever(cfg, sub_query):
+    from qdrant_client import QdrantClient
+    from langchain_huggingface import HuggingFaceEmbeddings
+
+    qdrant_path, coll_name = cfg.vector_db.qdrant_path, cfg.vector_db.collection_name
+    num_fetch_points = cfg.agent_configs.retriever_node.num_closest_chunks
+    embeddings = HuggingFaceEmbeddings(model_name=cfg.vector_db.embedding_model)
+    query_vector = embeddings.embed_query(sub_query)
+    client = QdrantClient(path=qdrant_path)
+    matched_points = client.query_points(
+        collection_name=coll_name,
+        query=query_vector,
+        limit=num_fetch_points,
+        with_payload=["metadata", "page_content"],
+        with_vectors=False,
+    )
+    log.info(matched_points)
+
+
 def test_mistral(cfg):
     from hydra.utils import instantiate
 
@@ -222,6 +250,24 @@ def analyse_headers(cfg):
         log.info(f"TICKER: {ticker}")
         log.info(headers)
 
+def test_sec_api(cfg):
+    # from sec_api import PdfGeneratorApi
+
+    # pdf_api = PdfGeneratorApi(cfg.data.sec_api_key)
+    # amzn_10k = pdf_api.get_pdf(cfg.data.amzn_10k_url)
+    # with open(r"data/sec_api/amzn.pdf", "wb") as f:
+    #     f.write(amzn_10k)
+
+    from edgar import Company, set_identity
+
+    ticker = "AAPL"
+    dest_filepath = r"data/edgar_tools_filings/aapl.html"
+    set_identity("Vipin Kumar vipinkumar1993@gmail.com")
+    company = Company(ticker)
+    filing = company.get_filings(form="10-K").latest()
+    text = filing.html()
+    with open(dest_filepath, "w") as f:
+        f.write(text)
 
 if __name__ == "__main__":
     with hydra.initialize(version_base=None, config_path=".."):
@@ -229,10 +275,5 @@ if __name__ == "__main__":
             config_name="config", overrides=[], return_hydra_config=True
         )
     hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
-    fact_query = "Who is the auditor for Apple in 2023?"
-    comparison_query = "Compare the risk factors for apple and microsoft."
-    complex_query = (
-        "What is the primary risk factor listed by the company"
-        "with the highest revenue in the tech sector?"
-    )
-    analyse_headers(cfg)
+    sub_query = "What are the risk factors for apple?"
+    test_sec_api(cfg)

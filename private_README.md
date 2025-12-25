@@ -31,6 +31,7 @@
 9. For the multi-agent RAG, I have provided a basic framework in Approach 01, which I will be following for now, to obtain a proof-of-concept outcome.
 10. I have created a project called `multi-agent-rag` on google ai studio and for that project I have created a key named `danish-multi-agent-rag` which I will be using for this project. I have also install `pip install langchain-google-genai` to try and use google's flash model.
 11. For now, I am trying to use gemma-3-27b model rather than the gemini-3-flash-preview model
+12. I have also installed `pip install sec-api` and created a free API with them since they provide 100 free API calls and SEC-10K filings in PDF format. I tried to download amazon SEC-10K filing using their API which seems to have gone fine. I am also installing `pip install mineru[core]` which can process pdf documents and is used by one of the papers I looked at.
 
 
 ## Appendix
