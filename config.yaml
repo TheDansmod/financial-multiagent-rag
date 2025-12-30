@@ -9,10 +9,10 @@ data:
   id_name: Vipin Kumar
   id_email: vipinkumar1993@gmail.com
   sec_api_key: ${oc.env:SEC_API_KEY}
-  amzn_10k_url: https://www.sec.gov/Archives/edgar/data/0001018724/000101872425000004/amzn-20241231.htm
+  md_file_path: ${hydra.runtime.cwd}/sec_api/mineru/TICKER/vlm/TICKER.md
 
 vector_db:
-  chunk_size: range(10, 50)
+  chunk_size: 1024
   chunk_overlap: 200
   embedding_model: sentence-transformers/all-MiniLM-L6-v2
   collection_name: sec_10k
@@ -22,8 +22,9 @@ model:
   # name: llama3.1
   # name: deepseek-r1:8b
   # name: gemma-3-27b-it
+  # name: mistral-large-latest
   _target_: utils.get_llm_provider
-  name: mistral-large-latest
+  name: gemma-3-27b-it
   temp: 1.0
 
 agent_configs:
@@ -40,5 +41,35 @@ agent_configs:
   retriever_node:
     num_closest_chunks: 10
 
+prompts:
+  table_description: |
+    I have uploaded an image of a table. The table was taken from the SEC 10K filing for {company_name} Company. The context from the filing is:
+    `{table_context}`
+    
+    Using the provided context and the table image, please derive (1) an overall summary of the table (2) a row-by-row exact description of the content of the table including any numerical figures and values.
+    The answer should have the following format:
+    Table Summary: [The actual summary of the table in a few lines.] Row 1: [Text description of the contents of row 1 in full complete sentences.] Row 2: [Text description of the contents of row 2 in full complete sentences.] and so on for other rows.
+
+    No other extraneous text should be present before or after the answer in the response. Also, no markdown should be used in the formatting of the answer
+
 hydra:
   verbose: true
+
+temporary:
+  amzn_md_path: ${hydra.runtime.cwd}/data/sec_api/mineru/amzn/auto/amzn.md
+  amzn_content_list_path: ${hydra.runtime.cwd}/data/sec_api/mineru/amzn/auto/amzn_content_list.json
+  urls_10k: [https://www.sec.gov/Archives/edgar/data/0001045810/000104581025000023/nvda-20250126.htm, https://www.sec.gov/Archives/edgar/data/0000320193/000032019325000079/aapl-20250927.htm, https://www.sec.gov/Archives/edgar/data/0000789019/000095017025100235/msft-20250630.htm, https://www.sec.gov/Archives/edgar/data/0001018724/000101872425000004/amzn-20241231.htm, https://www.sec.gov/Archives/edgar/data/0001652044/000165204425000014/goog-20241231.htm, https://www.sec.gov/Archives/edgar/data/0001326801/000132680125000017/meta-20241231.htm, https://www.sec.gov/Archives/edgar/data/0001318605/000162828025003063/tsla-20241231.htm, https://www.sec.gov/Archives/edgar/data/0000104169/000010416925000021/wmt-20250131.htm, https://www.sec.gov/Archives/edgar/data/0000019617/000001961725000270/jpm-20241231.htm, https://www.sec.gov/Archives/edgar/data/0001065280/000106528025000044/nflx-20241231.htm]
+  amzn_cleaned_md_path: /mnt/windows/Users/lordh/Documents/LibraryOfBabel/Miscellany/Danish/linux_temp/temp_files/0422_amzn.md
+  mistral_api_key: ${oc.env:MISTRAL_API_KEY}
+  mineru_folders: [aapl, amzn, goog, jpm, meta, msft]
+  image_path: ${hydra.runtime.cwd}/data/sec_api/mineru/aapl/vlm/images/0d2bad8fcdffadea5a88ab17d7cd58b8d7b06b3c31a5726d212cbbd5649a07be.jpg
+  chunking_prompt: |
+    You are a precise chunking model. The purpose of the chunking is to generate an embedding for each chunk and put it in a vector database for retrieval augmented generation.
+    You are provided with the following text segment: 
+    {text_segment}
+
+    The provided text segment is too large to be a single chunk. Please split the text segment into chunks which are substrings of the text segment so that, as far as possible, each chunk is self contained. Make as little modification to each chunk as possible to make it self contained. Ensure that as far as possible each chunk is only composed of substrings of the provided text segment.
+    The output must strictly only contain a list of strings, where each string is a chunk and the length of the list is the number of chunks.
+
+    For example, if a text segment is: "The causes of the cultural revolution are (1) mass unrest due to over-zealous policing; (2) draconian governmental policies that unjustly persecuted minorities; (3) the widespread suppression of free expression through burning books and closing television channels." then you can divide the text into three chunks as follows:
+    ["One of the causes of the cultural revolution was mass unrest due to over-zealous policing.", "One of the causes of the cultural revolution was draconian governmental policies that unjustly persecuted minorities.", "One of the causes of the cultural revolution was the widespread suppression of free expression through burning books and closing television channels."]

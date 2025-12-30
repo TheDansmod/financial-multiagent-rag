@@ -154,8 +154,8 @@ def test_planner(cfg, user_query):
 
 
 def test_retriever(cfg, sub_query):
-    from qdrant_client import QdrantClient
     from langchain_huggingface import HuggingFaceEmbeddings
+    from qdrant_client import QdrantClient
 
     qdrant_path, coll_name = cfg.vector_db.qdrant_path, cfg.vector_db.collection_name
     num_fetch_points = cfg.agent_configs.retriever_node.num_closest_chunks
@@ -250,24 +250,259 @@ def analyse_headers(cfg):
         log.info(f"TICKER: {ticker}")
         log.info(headers)
 
+
 def test_sec_api(cfg):
-    # from sec_api import PdfGeneratorApi
+    r"""Check out the sec-api python library with provided free API calls.
 
-    # pdf_api = PdfGeneratorApi(cfg.data.sec_api_key)
-    # amzn_10k = pdf_api.get_pdf(cfg.data.amzn_10k_url)
-    # with open(r"data/sec_api/amzn.pdf", "wb") as f:
-    #     f.write(amzn_10k)
+    I have installed the `pip install sec-api` python library.
+    It allows for 100 free api calls. It returns PDF files of the SEC filings.
+    I have, as yet, downloaded the 10K pdf for Amazon.
+    """
+    from sec_api import PdfGeneratorApi
 
-    from edgar import Company, set_identity
+    pdf_api = PdfGeneratorApi(cfg.data.sec_api_key)
+    for url in cfg.temporary.urls_10k:
+        if "amzn" in url:
+            continue
+        name = url.split("/")[-1].split("-")[0]
+        content = pdf_api.get_pdf(url)
+        with open(f"data/sec_api/{name}.pdf", "wb") as f:
+            f.write(content)
+        log.info(f"Company {name} done.")
 
-    ticker = "AAPL"
-    dest_filepath = r"data/edgar_tools_filings/aapl.html"
-    set_identity("Vipin Kumar vipinkumar1993@gmail.com")
-    company = Company(ticker)
-    filing = company.get_filings(form="10-K").latest()
-    text = filing.html()
-    with open(dest_filepath, "w") as f:
-        f.write(text)
+
+def compare_headers(cfg):
+    r"""Compare the md files from sec-api pdf + mineru and edgartools markdown.
+
+    I am comparing the amazon.md file headers derived from sec-api pdf download
+    processed subsequently with minerU, and the markdown file obtained from
+    edgartools.
+    """
+    edgar_fpath = r"data/edgar_tools_filings/AMZN-cleaned.md"
+    mineru_fpath = r"data/sec_api/mineru/amzn/auto/amzn.md"
+
+    log.info("EDGAR HEADERS")
+    with open(edgar_fpath, "r") as f:
+        for line in f:
+            if line.startswith("#"):
+                print(line, end="")
+
+    log.info("MINERU HEADERS")
+    with open(mineru_fpath, "r") as f:
+        for line in f:
+            if line.startswith("#"):
+                print(line, end="")
+
+
+def get_mineru_types():
+    import json
+
+    path = r"data/sec_api/mineru/amzn/auto/amzn_content_list.json"
+    with open(path, "r") as f:
+        content_list = json.load(f)
+    content_types = set()
+    for content in content_list:
+        content_types.add(content["type"].strip())
+    print(content_types)
+
+
+def test_splitters(cfg):
+    r"""Testing various splitters provided by Langchain.
+
+    We are having to do the testing since langchain documentation is not very clear
+    on what the various splitters do.
+
+    I need a file with various text sentences in it, to do the testing.
+    But might be better to derive that from the amzn.md file itself since it will
+    be more representative.
+
+    The number of characters in the modified (cleaned) amzn.md file are 244,904.
+
+    SpacyTextSplitter:
+    1. When I used default settings, the chunk sizes were really large. There were
+       a total of 66 chunks created with defaults.
+    2. chunk_size = 0 is not allowed (must be > 0). There were a total of 1205
+       chunks created with chunk_size = 1, chunk_overlap = 0. This seems to create
+       reasonably sized chunks, except for some chunks which are quite large.
+    Below is using [2] above. I have chosen it as good enough for now.
+    Most of the chunks are below 1000 characters, only 6 are larger. I will be
+    trying to pass them to an LLM and split them further.
+
+    I tried to use deepseek-r1:8b for the task and it seemed to work reasonably.
+    """
+    from hydra.utils import instantiate
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_text_splitters import SpacyTextSplitter
+    from pydantic import BaseModel, Field
+
+    class ListOfStrings(BaseModel):
+        llm_chunks: list[str] = Field(
+            description="list of chunked strings derived from the input string"
+        )
+
+    provider = instantiate(cfg.model)
+    model = provider(model=cfg.model.name, temperature=cfg.model.temp)
+    template = cfg.temporary.chunking_prompt
+    prompt = ChatPromptTemplate.from_template(template)
+    structured_llm = model.with_structured_output(ListOfStrings)
+    # structured_llm = model.bind_tools([ListOfStrings])
+    with open(cfg.temporary.amzn_cleaned_md_path, "r") as f:
+        document_text = f.read()
+    splitter = SpacyTextSplitter(chunk_size=1, chunk_overlap=0)
+    chunks = splitter.split_text(text=document_text)
+    for i in range(len(chunks)):
+        if len(chunks[i]) > cfg.vector_db.chunk_size:
+            formatted_prompt = prompt.format_messages(
+                text_segment=chunk.replace("\n", " ")
+            )
+            response = structured_llm.invoke(formatted_prompt)
+            chunks[i] = response.llm_chunks
+
+
+def test_newlines(cfg):
+    r"""Need to check if mineru md files always have newlines (1 or 2) after tables.
+
+    Will check the following:
+    1. Are all tables on their own separate lines? Or are there some lines which have
+       tables but they either don't start with <table> or don't end with </table>?
+    Ans: No.
+    ```python
+        table_start_tag, table_end_tag = "<table>", "</table>"
+        num_mixed_lines = 0
+        with open(cfg.temporary.amzn_md_path, "r") as f:
+            for line in f:
+                if table_start_tag in line or table_end_tag in line:
+                    table_start = line.strip().startswith(table_start_tag)
+                    table_end = line.strip().endswith(table_end_tag)
+                    if (not table_start) or (not table_end):
+                        num_mixed_lines += 1
+        log.info(f"md file lines with table and other text {num_mixed_lines}")
+    ```
+    2.
+    """
+
+    table_start_tag, table_end_tag = "<table>", "</table>"
+    num_mixed_lines = 0
+    with open(cfg.temporary.amzn_md_path, "r") as f:
+        for line in f:
+            if table_start_tag in line or table_end_tag in line:
+                table_start = line.strip().startswith(table_start_tag)
+                table_end = line.strip().endswith(table_end_tag)
+                if (not table_start) or (not table_end):
+                    num_mixed_lines += 1
+    log.info(f"Num lines in the md file with table and other text {num_mixed_lines}")
+
+
+def get_table_description(cfg, table_image_path, company_name, table_context):
+    r"""Returns a string description of a table given the image path and the context."""
+    import base64
+    from langchain_core.messages import HumanMessage
+
+    provider = hydra.utils.instantiate(cfg.model)
+    model = provider(model=cfg.model.name)
+    # get image as base64
+    with open(table_image_path, "rb") as file:
+        base64_img = base64.b64encode(file.read()).decode("utf-8")
+    message = HumanMessage(
+        content=[
+            {
+                "type": "text",
+                "text": cfg.prompts.table_description.format(
+                    company_name=company_name, table_context=table_context
+                ),
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_img}"},
+            },
+        ]
+    )
+    table_description = model.invoke([message]).content.replace("\n", " ")
+    return table_description
+
+
+def process_tables(cfg):
+    r"""Process the tables in the md files from mineru.
+
+    Process tables:
+    1. Take the markdown file and split it by single newlines - clean empty ones.
+    2. Go through the content list file and for each table type in that json list
+       find where it occurs in the md splits, then pass it and K prior non-table
+       (since there might be more than one table one after another) elements to an
+       LLM to get a summary - use the same prompt as the FinSage paper.
+    3. Replace the summary in the place of the table and re-create the markdown
+       file.
+
+    Note: for now I am using just the hardcoded amazon paths. need to fix this to
+          use more adaptable paths.
+    """
+    import json
+
+    # read the markdown file into a list of strings by splitting at double newline
+    with open(cfg.temporary.amzn_md_path, "r") as f:
+        split_text = f.read().split("\n\n")
+    # clean each split to remove whitespace from the ends - precautionary
+    for i, split in enumerate(split_text):
+        split_text[i] = split.strip()
+    # obtain the json contents list
+    with open(cfg.temporary.amzn_content_list_path, "r") as f:
+        content_list = json.load(f)
+    # verify that the number of tables in the markdown file are the same as the
+    # number of tables in the content list
+    table_start = "<table>"
+    num_tables_md = sum([1 if table_start in split else 0 for split in split_text])
+    num_table_imgs = sum([1 if it["type"] == "table" else 0 for it in content_list])
+    assert num_tables_md == num_table_images
+    # verify that the tables of the content list all start with <table> and end
+    # with the </table> tag.
+    table_end = "</table>"
+    for content in content_list:
+        if content["type"] == "table":
+            table = content["table_body"].strip()
+            assert table.startswith(table_start) and table.endswith(table_end)
+            content["table_body"] = table  # strip it here itself
+    # verify that every single table from the content list is present in the md file.
+    for content in content_list:
+        if not content["type"] == "table":
+            continue
+        table = content["table_body"]
+        assert table in split_text
+    # for content in content_list:
+    #     if not content["type"] == "table":
+    #         continue
+    #     table = content["table_body"]
+    #     # specifically use index since we want to fail if it does not occur
+    #     text_idx = split_text.index(table)
+
+
+def build_pre_processing_pipeline(cfg):
+    r"""This will try and do all the preprocessing after mineru to fill vector db.
+
+    Process tables:
+    1. Take the markdown file and split it by single newlines - clean empty ones.
+    2. Go through the content list file and for each table type in that json list
+       find where it occurs in the md splits, then pass it and K prior non-table
+       (since there might be more than one table one after another) elements to an
+       LLM to get a summary - use the same prompt as the FinSage paper.
+    3. Replace the summary in the place of the table and re-create the markdown
+       file.
+
+    Create chunks:
+    1. Load the un-tabled markdown file and split it using markdown header splitter
+       giving documents.
+    2. There might be some sections that have no content in them - need to see what
+       to do about them.
+    3. For each document, use an LLM to generate a summary of that section.
+    4. Use the spacy splitter on each document to generate sentence chunks. If any
+       chunk is larger than the configured chunk size, use an LLM to break it up
+       into manageable sentences.
+    5. For each summary add the year, company, header(s), type as metadata and add
+       them to the vector db.
+    5. For each chunk add the year, company, header(s), summary, type as metadata
+       and add them to the vector db.
+    """
+    pass
+
 
 if __name__ == "__main__":
     with hydra.initialize(version_base=None, config_path=".."):
@@ -276,4 +511,4 @@ if __name__ == "__main__":
         )
     hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
     sub_query = "What are the risk factors for apple?"
-    test_sec_api(cfg)
+    test_image_and_text(cfg)

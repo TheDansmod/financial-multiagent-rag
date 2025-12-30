@@ -32,6 +32,10 @@
 10. I have created a project called `multi-agent-rag` on google ai studio and for that project I have created a key named `danish-multi-agent-rag` which I will be using for this project. I have also install `pip install langchain-google-genai` to try and use google's flash model.
 11. For now, I am trying to use gemma-3-27b model rather than the gemini-3-flash-preview model
 12. I have also installed `pip install sec-api` and created a free API with them since they provide 100 free API calls and SEC-10K filings in PDF format. I tried to download amazon SEC-10K filing using their API which seems to have gone fine. I am also installing `pip install mineru[core]` which can process pdf documents and is used by one of the papers I looked at.
+13. I used mineru on the amzn.pdf file and it seems to have worked out fine. The only issue is that it has no headings hierarchy and the correspondence between the images and the tables in the markdown are not straight forward. Need to use the contents list to figure out the correspondence.
+14. Installed `pip install spacy` to allow using SpacyTextSplitter from langchain - for now, just to check how it does the text splitting. Also ran `python -m spacy download en_core_web_sm` which is the small model.
+15. I have downloaded all the pdf files for my 10 companies from the free API provided by sec-api.
+16. I have checked that using gemma-3-27b-it model for obtaining descriptions of tables seems to work alright. I have added a function `misc.misc_exploration.get_table_description` which returns a string description of the table provided the context, the company, and the image path.
 
 
 ## Appendix
@@ -80,4 +84,8 @@
 3. How has the situation where there are headings without content been handled?
 4. Deepseek R1 8B is also a viable model but it thinks more. Can try using that. I have downloaded it. (deepseek-r1:8b)
 
-
+### Document Parsing Proposal
+1. Obtain the pdf 10K documents from the sec-api python library using their free API
+2. Process them using minerU library - it generates a md file, contents list.json file and images file of the tables
+3. For each of the images, the context for them is often located in the few chunks before the images - so need to obtain those chunks and feed that along with the image to an LLM to obtain a proper description of the image.
+4. Split the document into sentence level chunks. Perform co-reference resolution for each sentence. Add metadata to each chunk saying
