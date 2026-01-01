@@ -365,7 +365,7 @@ def test_newlines(cfg):
     Will check the following:
     1. Are all tables on their own separate lines? Or are there some lines which have
        tables but they either don't start with <table> or don't end with </table>?
-    Ans: No.
+    Ans: All tables are on their own separate lines.
     ```python
         table_start_tag, table_end_tag = "<table>", "</table>"
         num_mixed_lines = 0
@@ -380,7 +380,6 @@ def test_newlines(cfg):
     ```
     2.
     """
-
     table_start_tag, table_end_tag = "<table>", "</table>"
     num_mixed_lines = 0
     with open(cfg.temporary.amzn_md_path, "r") as f:
@@ -433,46 +432,102 @@ def process_tables(cfg):
     3. Replace the summary in the place of the table and re-create the markdown
        file.
 
-    Note: for now I am using just the hardcoded amazon paths. need to fix this to
-          use more adaptable paths.
+    Note: The "table" type in content list has relevant keys: table_body (actual), 
+          table_footnote (list[str]), table_caption (list[str]), img_path (str).
+    Note: If you ignore table types in content list that don't have a table_body
+          key, there is a bijection between the markdown file tables and content
+          list tables.
+    TODO: add the variable that controls how many prior splits of the markdown file
+          you will pass as context to the LLM for obtaining the table description
+          to the config file. Here, the value is 3.
+    TODO: remove blank splits from split_text
     """
     import json
+    from pathlib import Path
 
-    # read the markdown file into a list of strings by splitting at double newline
-    with open(cfg.temporary.amzn_md_path, "r") as f:
-        split_text = f.read().split("\n\n")
-    # clean each split to remove whitespace from the ends - precautionary
-    for i, split in enumerate(split_text):
-        split_text[i] = split.strip()
-    # obtain the json contents list
-    with open(cfg.temporary.amzn_content_list_path, "r") as f:
-        content_list = json.load(f)
-    # verify that the number of tables in the markdown file are the same as the
-    # number of tables in the content list
     table_start = "<table>"
-    num_tables_md = sum([1 if table_start in split else 0 for split in split_text])
-    num_table_imgs = sum([1 if it["type"] == "table" else 0 for it in content_list])
-    assert num_tables_md == num_table_images
-    # verify that the tables of the content list all start with <table> and end
-    # with the </table> tag.
     table_end = "</table>"
-    for content in content_list:
-        if content["type"] == "table":
-            table = content["table_body"].strip()
-            assert table.startswith(table_start) and table.endswith(table_end)
-            content["table_body"] = table  # strip it here itself
-    # verify that every single table from the content list is present in the md file.
-    for content in content_list:
-        if not content["type"] == "table":
-            continue
-        table = content["table_body"]
-        assert table in split_text
-    # for content in content_list:
-    #     if not content["type"] == "table":
-    #         continue
-    #     table = content["table_body"]
-    #     # specifically use index since we want to fail if it does not occur
-    #     text_idx = split_text.index(table)
+    for ticker in cfg.data.companies:
+        md_path = cfg.data.md_file_path.format(ticker=ticker.lower())
+        content_list_path = cfg.data.content_list_file_path.format(
+            ticker=ticker.lower()
+        )
+        images_folder = cfg.data.images_folder_path.format(ticker=ticker.lower())
+        # read the markdown file into a list of strings by splitting at double newline
+        with open(md_path, "r") as f:
+            split_text = f.read().split("\n\n")
+        # clean each split to remove whitespace from the ends - precautionary
+        for i, split in enumerate(split_text):
+            split_text[i] = split.strip()
+        # verify that all tables are separate elements in the markdown file
+        for split in split_text:
+            if (table_start not in split) or (table_end not in split):
+                continue
+            assert split.startswith(table_start)
+            assert split.endswith(table_end)
+        # obtain the json contents list
+        with open(content_list_path, "r") as f:
+            content_list = json.load(f)
+        # verify that the number of tables in the markdown file are the same as the
+        # number of tables in the content list, and they all have an image
+        # also that each table in the content list is present somewhere in the md file
+        # overall this means we have a bijection between the tables in the markdown
+        # file and the tables in the content list file.
+        num_tables_md = sum([1 if table_start in split else 0 for split in split_text])
+        num_content_tables = 0
+        for content in content_list:
+            if not (content["type"] == "table" and "table_body" in content):
+                continue
+            num_content_tables += 1
+            assert content["table_body"] in split_text
+            assert content["img_path"].strip()  # should not be blank
+        # get the description for each table in the markdown file
+        for idx, split in enumerate(split_text):
+            if table_start not in split:
+                continue
+            # get this table's data and image path from the content list file
+            for content in content_list:
+                if "table_body" in content and content["table_body"] == split:
+                    caption = (" ".join(content["table_caption"])).strip()
+                    footnote = (" ".join(content["table_footnote"])).strip()
+                    image_path = Path(f"{images_folder}{content['img_path'].split('/')[1]}")
+                    break
+            # get the previous 3 non-table splits from the markdown file
+            # don't add any previous splits if you encounter a heading
+            splits_needed, splits_obtained = 3, 0
+            table_context_md = []
+            for i in range(idx-1, -1, -1):
+                # we only want non-tabular splits
+                if table_start in split_text[i]:
+                    continue
+                # stop if we have the number of needed splits
+                if splits_obtained >= splits_needed:
+                    break
+                # add the header and no more if there is a header
+                if split_text[i].startswith('#'):
+                    table_context_md.append(split_text[i])
+                    break
+                table_context_md.append(split_text[i])
+                splits_obtained += 1
+            # splits were added in reverse order, putting them right
+            md_context = (" ".join(table_context_md[::-1])).strip()
+            table_context = ""
+            if caption:
+                table_context += f"Caption: {caption}\n"
+            if footnote:
+                table_context += f"Footnote: {footnote}\n"
+            if md_context:
+                table_context += f"Text before the table in the filing: {md_context}"
+            table_description = get_table_description(cfg, image_path, ticker, table_context)
+            # put all this into a file so that if anything fails, I don't have to repeat the LLM call for those that are already done
+            table_json = {"Image": str(image_path), "Ticker": ticker, "Table Context": table_context, "Split Index": idx, "Split": split, "Table Description": table_description}
+            # json data is a list
+            with open(cfg.data.table_descriptions_path, 'r') as file:
+                json_data = json.load(file)
+            json_data.append(table_json)
+            with open(cfg.data.table_descriptions_path, 'w') as file:
+                json.dump(json_data, file)
+            log.info("One call done")
 
 
 def build_pre_processing_pipeline(cfg):
@@ -511,4 +566,4 @@ if __name__ == "__main__":
         )
     hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
     sub_query = "What are the risk factors for apple?"
-    test_image_and_text(cfg)
+    process_tables(cfg)

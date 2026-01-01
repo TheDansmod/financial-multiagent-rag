@@ -9,7 +9,10 @@ data:
   id_name: Vipin Kumar
   id_email: vipinkumar1993@gmail.com
   sec_api_key: ${oc.env:SEC_API_KEY}
-  md_file_path: ${hydra.runtime.cwd}/sec_api/mineru/TICKER/vlm/TICKER.md
+  md_file_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/{ticker}.md
+  content_list_file_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/{ticker}_content_list.json
+  images_folder_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/images/
+  table_descriptions_path: ${hydra.runtime.cwd}/misc/table_descriptions.json
 
 vector_db:
   chunk_size: 1024
@@ -46,7 +49,7 @@ prompts:
     I have uploaded an image of a table. The table was taken from the SEC 10K filing for {company_name} Company. The context from the filing is:
     `{table_context}`
     
-    Using the provided context and the table image, please derive (1) an overall summary of the table (2) a row-by-row exact description of the content of the table including any numerical figures and values.
+    Using the provided context and the table image, please derive (1) an overall summary of the table (2) a row-by-row exact description of the content of the table including any numerical figures and values. Sometimes, the context will not be relevant to the content of the table. In that case, please only refer to and use the context that is relevant to the table.
     The answer should have the following format:
     Table Summary: [The actual summary of the table in a few lines.] Row 1: [Text description of the contents of row 1 in full complete sentences.] Row 2: [Text description of the contents of row 2 in full complete sentences.] and so on for other rows.
 
