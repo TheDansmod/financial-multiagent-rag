@@ -36,6 +36,7 @@
 14. Installed `pip install spacy` to allow using SpacyTextSplitter from langchain - for now, just to check how it does the text splitting. Also ran `python -m spacy download en_core_web_sm` which is the small model.
 15. I have downloaded all the pdf files for my 10 companies from the free API provided by sec-api.
 16. I have checked that using gemma-3-27b-it model for obtaining descriptions of tables seems to work alright. I have added a function `misc.misc_exploration.get_table_description` which returns a string description of the table provided the context, the company, and the image path.
+17. I have obtained summaries for the all the tables in the documents using gemma-3-27b-it model. I think there were around 850 tables. I have created markdown documents that use those summaries.
 
 
 ## Appendix

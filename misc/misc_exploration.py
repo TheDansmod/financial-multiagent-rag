@@ -430,17 +430,20 @@ def process_tables(cfg):
        (since there might be more than one table one after another) elements to an
        LLM to get a summary - use the same prompt as the FinSage paper.
     3. Replace the summary in the place of the table and re-create the markdown
-       file.
+       file - this is done in a different function - populate_markdown
 
     Note: The "table" type in content list has relevant keys: table_body (actual), 
           table_footnote (list[str]), table_caption (list[str]), img_path (str).
     Note: If you ignore table types in content list that don't have a table_body
           key, there is a bijection between the markdown file tables and content
           list tables.
+    Note: This function is only obtaining the responses from the LLM, not updating
+          the markdown files.
     TODO: add the variable that controls how many prior splits of the markdown file
           you will pass as context to the LLM for obtaining the table description
           to the config file. Here, the value is 3.
     TODO: remove blank splits from split_text
+    TODO: refactor the function to be more readable and modular
     """
     import json
     from pathlib import Path
@@ -527,13 +530,119 @@ def process_tables(cfg):
             json_data.append(table_json)
             with open(cfg.data.table_descriptions_path, 'w') as file:
                 json.dump(json_data, file)
-            log.info("One call done")
+
+def populate_markdown(cfg):
+    r"""Replace the tables in the markdown files with the downloaded descriptions.
+
+    In the other function, I found the tables in the markdown files, obtained the
+    context, sent them to the LLM and populated a json file with the responses.
+    In this function, we will read the json file and replace the content in the
+    markdown files.
+    """
+    import json
+
+    with open(cfg.data.table_descriptions_path, "r") as file:
+        json_data = json.load(file)
+    # for each company, load the md file as splits, for each table in the splits
+    # replace it with the correct description from the json file by iterating
+    # through the json file
+    for ticker in cfg.data.companies:
+        # load md file and generate splits
+        md_path = cfg.data.md_file_path.format(ticker=ticker.lower())
+        proc_md_path = cfg.data.processed_md_file_path.format(ticker=ticker.lower())
+        with open(md_path, "r") as f:
+            split_text = f.read().split("\n\n")
+        # clean each split to remove whitespace from the ends - precautionary
+        for i, split in enumerate(split_text):
+            split_text[i] = split.strip()
+        for table_descr in json_data:
+            if table_descr["Ticker"] == ticker:
+                split_text[table_descr["Split Index"]] = table_descr["Table Description"]
+        proc_md_file = "\n\n".join(split_text)
+        with open(proc_md_path, "w") as file:
+            file.write(proc_md_file)
+
+def create_header_split_file(cfg):
+    r"""Splits the markdown files into sections based on headers and gets their
+    summaries from an LLM and adds them to the header splits json file.
+
+    1. The header splits file must exist (but can be empty).
+    2. We initially ensure that the header splits file contains valid json.
+    3. We iterate through all the markdown files, and generate header splits for each
+       of them.
+    4. For each header file, for each split in it, we read the json data (again since
+       it might have changed), and check if the split has already been summarised. If
+       yes, then we continue on to the next split. If not, then we summarise the
+       split by llm invocation, add a dict for this split to the json data, and write
+       the json data back to file.
+    5. We read and write the json data for each split since we want to persist every
+       response of the LLM since that is expensive.
+
+    Since there are only 2210 total sections across the 10 markdown files, I feel it
+    would be ok to use the gemma-3-27b-it model for this task.
+
+    TODOs:
+    1. Add code to ensure that header splits file need not even exist when this
+       code is run.
+    """
+    import json
+    from langchain_text_splitters import MarkdownHeaderTextSplitter
+    from langchain_core.prompts import ChatPromptTemplate
+    from uuid import uuid4
+
+    # we ensure file content is valid json
+    with open(cfg.data.header_splits_file_path, "r") as file:
+        file_data = file.read().strip()
+    if not file_data:
+        json_data = []
+    else:
+        json_data = json.loads(file_data)
+    with open(cfg.data.header_splits_file_path, "w") as file:
+        json.dump(json_data, file)
+
+    provider = hydra.utils.instantiate(cfg.model)
+    llm = provider(model=cfg.model.name)
+    prompt = ChatPromptTemplate.from_template(cfg.prompts.header_section_summary)
+    headers_to_split_on = [
+        ("#", "Header 1"),
+        ("##", "Header 2"),
+        ("###", "Header 3"),
+        ("####", "Header 4"),
+    ]
+    valid_headers = ["Header 1", "Header 2", "Header 3", "Header 4"]
+    md_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    counter = len(json_data)
+    for ticker in cfg.data.companies:
+        with open(cfg.data.processed_md_file_path.format(ticker=ticker.lower()), "r") as file:
+            text = file.read()
+        header_splits = md_splitter.split_text(text)
+        for split in header_splits:
+            # check if split is present in json file and has summary
+            with open(cfg.data.header_splits_file_path, "r") as file:
+                json_data = json.load(file)
+            split_summarised = False
+            for elem in json_data:
+                # each elem is a dictionary with keys ticker, page_content, id, summary (if summarised), metadata
+                if elem["ticker"] == ticker and elem["page_content"] == split.page_content and "summary" in elem and elem["summary"].strip() and elem["metadata"] == split.metadata:
+                    split_summarised = True
+                    break
+            if split_summarised:
+                continue
+            section_headings = " ".join([v for k, v in split.metadata.items() if k in valid_headers])
+            formatted_prompt = prompt.format_messages(ticker=ticker, section_headings=section_headings, text_section=split.page_content)
+            split_summary = llm.invoke(formatted_prompt).content
+            split_json = {"ticker": ticker, "page_content": split.page_content, "id": str(uuid4()), "metadata": split.metadata, "summary": split_summary}
+            json_data.append(split_json)
+            with open(cfg.data.header_splits_file_path, "w") as file:
+                json.dump(json_data, file)
+            counter += 1
+            log.info(f"Done {counter} of 2210")
 
 
 def build_pre_processing_pipeline(cfg):
     r"""This will try and do all the preprocessing after mineru to fill vector db.
 
-    Process tables:
+    Process tables: - process_tables, populate_markdown
     1. Take the markdown file and split it by single newlines - clean empty ones.
     2. Go through the content list file and for each table type in that json list
        find where it occurs in the md splits, then pass it and K prior non-table
@@ -541,6 +650,11 @@ def build_pre_processing_pipeline(cfg):
        LLM to get a summary - use the same prompt as the FinSage paper.
     3. Replace the summary in the place of the table and re-create the markdown
        file.
+    Note: The above is done (01 Jan 2026 14:00 PM) and files are stored in the
+          cfg.data.processed_md_file_path variable
+
+    Splitting each file into chunks and getting the summary of each chunks is done
+    by a different function - create_header_split_file
 
     Create chunks:
     1. Load the un-tabled markdown file and split it using markdown header splitter
@@ -555,8 +669,207 @@ def build_pre_processing_pipeline(cfg):
        them to the vector db.
     5. For each chunk add the year, company, header(s), summary, type as metadata
        and add them to the vector db.
+
+    Need to do co-reference resolution, which can't be done with the json file since
+    the elements in the json file are not necessarily in order, and for co-reference
+    resolution we need the previous 10 non-tabular chunks. I think I will have to do
+    markdown header splitting again.
+
+    Since there are likely quite a few sentences overall, I will likely be using the
+    deepseek model for doing decontexualization. I am also using deepseek model for
+    dividing larger chunks into smaller ones since I need a structured LLM for that.
+
+    Results:
+    1. The header splitter produces 2210 total sections, with max len 49,832 and min
+       len 4. Only 16 larger than 20k, and 91 larger than 10k.
+    2. The number of unique elements of the header splitter (including the ticker,
+       page_content, and metadata) are 2195.
+    3. The total number of calls to llms for splitting large chunks was 64 and the
+       total number of calls to llms for de-contextualization was 27,952.
+    4. I would like to test how long it will take on my local PC. So will do random
+       calls for 0.001 fraction of the total.
+    5. I also want to figure out what the number of tokens are for all my prompts
+    6. The largest token size is 1380 tokens, no tokens larger than 4096.
+
+    TODOs:
+    1. Currently I have pre-populated the empty header splits file with a list so
+       that json loading works. Insert code for handling empty or non-existent file.
+    2. Set the number of context chunks as a parameter in the config file
     """
-    pass
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.documents import Document
+    from langchain_text_splitters import (
+        SpacyTextSplitter,
+        MarkdownHeaderTextSplitter,
+    )
+    from pydantic import BaseModel, Field
+    from uuid import uuid4
+    import json
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_qdrant import QdrantVectorStore
+    from qdrant_client import QdrantClient
+    from qdrant_client.http.models import Distance, VectorParams
+    from frozendict import frozendict
+    import random
+
+    class ListOfStrings(BaseModel):
+        llm_chunks: list[str] = Field(
+            description="list of chunked strings derived from the input string"
+        )
+
+    def order_header_splits_json(json_data):
+        """The cfg.data.header_splits_file_path file might contain elements that are
+        not in order, but the decontexualization needs them in order, so this
+        function adds order to them.
+        """
+        log.info(f"number of elements in header splits file: {len(json_data)}")
+        splits_seq = []
+        md_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+        for ticker in cfg.data.companies:
+            with open(cfg.data.processed_md_file_path.format(ticker=ticker.lower()), "r") as file:
+                text = file.read()
+            # split_text returns list of docs, but we only want the text 
+            # - added ticker to hopefully make it unique
+            header_splits = [(ticker, doc.page_content, frozendict(doc.metadata)) for doc in md_splitter.split_text(text=text)]
+            splits_seq.extend(header_splits)
+        # since python 3.7 dictionaries guarantee preservation of insertion order
+        unique_splits_seq = list(dict.fromkeys(splits_seq))
+        log.info(f"number of elements in splits seq: {len(splits_seq)}")
+        log.info(f"number of elements that are unique in splits seq: {len(set(splits_seq))}")
+        new_json_data = [None] * len(json_data)
+        for elem in json_data:
+            # use index in place of find since we want it to error out if the split
+            # is absent
+            idx = unique_splits_seq.index((elem["ticker"], elem["page_content"], frozendict(elem["metadata"])))
+            new_json_data[idx] = elem
+        return new_json_data
+
+    def get_decontexualization_context(main_doc):
+        r"""In this function we will iterate in reverse through the documents list
+        and add at most num_context_chunks elements to context_list. 
+
+        I was planning on skipping tables, but that is not really possible since how
+        will I even figure out what is a table since all I have are sentences. The
+        summary might actually contain a table, but that does not necessarily mean
+        that the current sentence is part of a table.
+
+        I was also planning on terminating if I encounter any headers, and that is
+        I think actually possible - I can keep checking the header to see if it has
+        changed. Actually since we don't know the header title, might be better to
+        use summary and ticker.
+        """
+        context_list = []
+        for doc in documents[:-(num_context_chunks + 1):-1]:
+            if not (doc.metadata["section_summary"] == main_doc.metadata["section_summary"] or doc.metadata["ticker"] == main_doc.metadata["ticker"]):
+                break
+            context_list.append(doc.page_content)
+        return " ".join(context_list)
+
+    headers_to_split_on = [
+        ("#", "Header 1"),
+        ("##", "Header 2"),
+        ("###", "Header 3"),
+        ("####", "Header 4"),
+    ]
+    spacy_splitter = SpacyTextSplitter(chunk_size=1, chunk_overlap=0)
+    decon_template = cfg.prompts.de_contexualization
+    decon_prompt = ChatPromptTemplate.from_template(decon_template)
+    chunking_template = cfg.prompts.chunking
+    chunking_prompt = ChatPromptTemplate.from_template(chunking_template)
+    provider = hydra.utils.instantiate(cfg.model)
+    llm = provider(model=cfg.model.name)
+    structured_llm = llm.with_structured_output(ListOfStrings)
+    log.info("obtained prompts and llms")
+
+    num_context_chunks = 10
+    timings, in_tokens, out_tokens = [], [], []
+    thresh = 0.001
+    with open(cfg.data.header_splits_file_path, "r") as file:
+        json_data = order_header_splits_json(json.load(file))
+    log.info("obtained new json data with right order")
+    # first we encode and add the chunks, then we'll do the metadata
+    documents = []
+    num_struct_calls, num_normal_calls = 0, 0
+    for elem in json_data:
+        chunks = spacy_splitter.split_text(text=elem["page_content"])
+        for chunk in chunks:
+            if len(chunk) > cfg.vector_db.chunk_size:
+                chunking_formatted_prompt = chunking_prompt.format_messages(text_segment=chunk.replace("\n", " "), ticker=elem["ticker"])
+                if random.random() < thresh:
+                    start = time.perf_counter()
+                    response = strctured_llm.invoke(chunking_formatted_prompt)
+                    split_chunks = response.llm_chunks
+                    timings.append(time.perf_counter() - end)
+                    in_tokens.append(response.response_metadata.get("prompt_eval_count", 0))
+                    out_tokens.append(response.response_metadata.get("eval_count", 0))
+                else:
+                    split_chunks = ["In late 2013, Wangchuk invented and built a prototype of the Ice Stupa which is an artificial glacier that stores the wasting stream waters during the winters in the form of giant ice cones or stupas, and releases the water during late spring as they start melting, which is the perfect time when the farmers need water.", "In 2014, he was appointed to the Expert panel for framing the J&K State Education Policy and Vision Document. Since 2015, Wangchuk has started working on establishing Himalayan Institute of Alternatives.", "He is concerned about how most of the Universities, especially those in the mountains have become irrelevant to realities of life."]
+                for split_chunk in split_chunks:
+                    metadata = elem["metadata"] | {"type": "content", "section_summary": elem["summary"], "ticker": elem["ticker"]}
+                    doc = Document(page_content=split_chunk, metadata=metadata, id=str(uuid4()))
+                    decon_formatted_prompt = decon_prompt.format_messages(ticker=elem["ticker"], main_chunk=doc.page_content, chunk_context=get_decontexualization_context(doc))
+                    if random.random < thresh:
+                        start = time.perf_counter()
+                        response = llm.invoke(decon_formatted_prompt)
+                        timings.append(time.perf_counter() - end)
+                        in_tokens.append(response.response_metadata.get("prompt_eval_count", 0))
+                        out_tokens.append(response.response_metadata.get("eval_count", 0))
+                        doc.page_content = response.content
+                    else:
+                        doc.page_content = "Wangchuk has been helping in designing and overseeing the construction of several passive solar mud buildings in mountain regions like Ladakh, Sikkim and Nepal so that energy savings principles are implemented on a larger scale."
+                    documents.append(doc)
+            else:
+                metadata = elem["metadata"] | {"type": "content", "section_summary": elem["summary"], "ticker": elem["ticker"]}
+                doc = Document(page_content=chunk, metadata=metadata, id=elem["id"])
+                decon_formatted_prompt = decon_prompt.format_messages(ticker=elem["ticker"], main_chunk=doc.page_content, chunk_context=get_decontexualization_context(doc))
+                if random.random() < thresh:
+                    start = time.perf_counter()
+                    response = llm.invoke(decon_formatted_prompt).content
+                    timings.append(time.perf_counter() - end)
+                    in_tokens.append(response.response_metadata.get("prompt_eval_count", 0))
+                    out_tokens.append(response.response_metadata.get("eval_count", 0))
+                    doc.page_content = response.content
+                else:
+                    doc.page_content = "Wangchuk was instrumental in the launch of Operation New Hope in 1994, a collaboration of the government, village communities and the civil society to bring reforms in the government school system."
+                documents.append(doc)
+    log.info(f"Number of normal calls: {num_normal_calls}")
+    log.info(f"Number of structured calls: {num_struct_calls}")
+    log.info(f"Number of tokens (should be same as total calls): {len(token_sizes)}")
+    log.info(f"Max token size: {max(token_sizes)}")
+    log.info(f"Num token sizes > 4096: {sum([1 if sz > 4096 else 0 for sz in token_sizes])}")
+    log.info(f"Num token sizes > 16384: {sum([1 if sz > 16384 else 0 for sz in token_sizes])}")
+    avg_out = np.mean(out_tokens)
+    avg_in = np.mean(in_tokens)
+    avg_tps = avg_out / np.mean(timings)
+
+    print(f"Avg Output Tokens: {avg_out:.2f}")
+    print(f"Avg Input Tokens: {avg_in:.2f}")
+    print(f"Measured Speed: {avg_tps:.2f} tokens/sec")
+
+    total_hours = (30000 * avg_out) / (avg_tps * 3600)
+    print(f"Estimated time for 30k calls: {total_hours:.2f} hours")
+    # now metadata at the end - no decontexualization for them since they are already expected to be decontexualised since they are summaries
+    # for elem in json_data:
+    #     summary_metadata = elem["metadata"] | {"type": "summary", "ticker": elem["ticker"]}
+    #     summary_doc = Document(page_content=elem["summary"], metadata=summary_metadata, id=str(uuid4()))
+    #     documents.append(summary_doc)
+
+    # # add these documents to the vector db
+    # embedding_model = cfg.vector_db.embedding_model
+    # embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
+    # client = QdrantClient(path=cfg.vector_db.qdrant_path)
+    # 
+    # collection_name = cfg.vector_db.collection_name
+    # if not client.collection_exists(collection_name):
+    #     log.info(f"Creating collection '{collection_name}'...")
+    #     client.create_collection(
+    #         collection_name=collection_name,
+    #         vectors_config=VectorParams(size=client.get_embedding_size(embedding_model), distance=Distance.COSINE),
+    #     )
+    # else:
+    #     log.info(f"Collection '{collection_name}' already exists. Appending documents...")
+    # vector_store = QdrantVectorStore(client=client, collection_name=collection_name, embedding=embeddings)
+    # vector_store.add_documents(documents=docs)
 
 
 if __name__ == "__main__":
@@ -566,4 +879,5 @@ if __name__ == "__main__":
         )
     hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
     sub_query = "What are the risk factors for apple?"
-    process_tables(cfg)
+    # create_header_split_file(cfg)
+    build_pre_processing_pipeline(cfg)

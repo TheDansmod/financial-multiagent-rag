@@ -13,6 +13,8 @@ data:
   content_list_file_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/{ticker}_content_list.json
   images_folder_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/images/
   table_descriptions_path: ${hydra.runtime.cwd}/misc/table_descriptions.json
+  processed_md_file_path: ${hydra.runtime.cwd}/data/sec_api/processed_md_files/{ticker}.md
+  header_splits_file_path: ${hydra.runtime.cwd}/misc/header_splits.json
 
 vector_db:
   chunk_size: 1024
@@ -54,9 +56,34 @@ prompts:
     Table Summary: [The actual summary of the table in a few lines.] Row 1: [Text description of the contents of row 1 in full complete sentences.] Row 2: [Text description of the contents of row 2 in full complete sentences.] and so on for other rows.
 
     No other extraneous text should be present before or after the answer in the response. Also, no markdown should be used in the formatting of the answer
+  chunking: |
+    You are a precise chunking model. The purpose of the chunking is to generate an embedding for each chunk and put it in a vector database for retrieval augmented generation.
+    You are provided with the following text segment: 
+    {text_segment}
+
+    The provided text segment is too large to be a single chunk. Please split the text segment into chunks which are substrings of the text segment so that, as far as possible, each chunk is self contained. Make as little modification to each chunk as possible to make it self contained. Ensure that as far as possible each chunk is only composed of substrings of the provided text segment.
+    The output must strictly only contain a list of strings, where each string is a chunk and the length of the list is the number of chunks. Most of the references to "Our", "We", "The Company" will likely be to the company with the ticker {ticker}. Make replacements for these phrases as appropriate.
+
+    For example, if a text segment is: "The causes of the cultural revolution are (1) mass unrest due to over-zealous policing; (2) draconian governmental policies that unjustly persecuted minorities; (3) the widespread suppression of free expression through burning books and closing television channels." then you can divide the text into three chunks as follows:
+    ["One of the causes of the cultural revolution was mass unrest due to over-zealous policing.", "One of the causes of the cultural revolution was draconian governmental policies that unjustly persecuted minorities.", "One of the causes of the cultural revolution was the widespread suppression of free expression through burning books and closing television channels."]
+  de_contexualization: |
+    You are an expert editor specializing in document de-contextualization. I will provide you a main chunk of text, and a few more chunks that occured before the text for context. Your need to perform entity resolution, substitution, sentence de-contexualization, and reference resolution for all sentences in the main chunk. All chunks are derived from a SEC filing document of the company: {ticker}. Leave as much of the chunk untouched as possible. The goal is to have each sentence on its own make complete sense without requiring context sentences, as far as possible. If no de-contexualization is required on the provided main chunk, then provide the main chunk as response verbatim. Most of the references to "Our", "We", "The Company" will likely be to the company whose ticker is {ticker}. Make replacements for these phrases as appropriate.
+
+    The main chunk:
+    {main_chunk}
+
+    The context:
+    {chunk_context}
+
+    The response should contain only the main chunk after de-contexualization has been completed on it. No extraneous text should be present in the response before or after the processed main chunk.
+  header_section_summary: |
+    You are an expert summarizer. I will provide a section of text below derived from SEC filings for the company whose ticker is {ticker}. The headings for the section is/are {section_headings}. Please provide a summary of what this section contains in at most 6 sentences. Ensure that the summary only uses the text I provide below. Do not inject any content into the summary that is not present in the text below. Ensure that the response contains no extraneous text before or after the summary. The response should contain only the summary. Most of the references to "Our", "We", "The Company" will likely be to the company whose ticker is {ticker}. Make replacements for these phrases as appropriate. If the section is small, use fewer than 6 sentences to summarise the section.
+
+    The section of text is:
+    {text_section}
 
 hydra:
-  verbose: true
+  verbose: false
 
 temporary:
   amzn_md_path: ${hydra.runtime.cwd}/data/sec_api/mineru/amzn/auto/amzn.md
@@ -72,7 +99,7 @@ temporary:
     {text_segment}
 
     The provided text segment is too large to be a single chunk. Please split the text segment into chunks which are substrings of the text segment so that, as far as possible, each chunk is self contained. Make as little modification to each chunk as possible to make it self contained. Ensure that as far as possible each chunk is only composed of substrings of the provided text segment.
-    The output must strictly only contain a list of strings, where each string is a chunk and the length of the list is the number of chunks.
+    The output must strictly only contain a list of strings, where each string is a chunk and the length of the list is the number of chunks. Most of the references to "Our", "We", "The Company" will likely be to the company with the ticker {ticker}. Make replacements for these phrases as appropriate.
 
     For example, if a text segment is: "The causes of the cultural revolution are (1) mass unrest due to over-zealous policing; (2) draconian governmental policies that unjustly persecuted minorities; (3) the widespread suppression of free expression through burning books and closing television channels." then you can divide the text into three chunks as follows:
     ["One of the causes of the cultural revolution was mass unrest due to over-zealous policing.", "One of the causes of the cultural revolution was draconian governmental policies that unjustly persecuted minorities.", "One of the causes of the cultural revolution was the widespread suppression of free expression through burning books and closing television channels."]
