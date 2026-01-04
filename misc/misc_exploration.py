@@ -690,6 +690,9 @@ def build_pre_processing_pipeline(cfg):
        calls for 0.001 fraction of the total.
     5. I also want to figure out what the number of tokens are for all my prompts
     6. The largest token size is 1380 tokens, no tokens larger than 4096.
+    7. Based on 17 random invocations, the average input tokens is 661.65, the avg
+       output tokens is 570.65, the speed with deepseek-r1:8b is 43.68 tokens/sec,
+       and the estimated time for 30k calls is 108.88 hours. Not viable.
 
     TODOs:
     1. Currently I have pre-populated the empty header splits file with a list so
@@ -710,7 +713,8 @@ def build_pre_processing_pipeline(cfg):
     from qdrant_client import QdrantClient
     from qdrant_client.http.models import Distance, VectorParams
     from frozendict import frozendict
-    import random
+    import numpy as np
+    import time
 
     class ListOfStrings(BaseModel):
         llm_chunks: list[str] = Field(
@@ -782,94 +786,52 @@ def build_pre_processing_pipeline(cfg):
     log.info("obtained prompts and llms")
 
     num_context_chunks = 10
-    timings, in_tokens, out_tokens = [], [], []
-    thresh = 0.001
     with open(cfg.data.header_splits_file_path, "r") as file:
         json_data = order_header_splits_json(json.load(file))
     log.info("obtained new json data with right order")
     # first we encode and add the chunks, then we'll do the metadata
     documents = []
-    num_struct_calls, num_normal_calls = 0, 0
+    num_llm_calls = 0
     for elem in json_data:
         chunks = spacy_splitter.split_text(text=elem["page_content"])
         for chunk in chunks:
             if len(chunk) > cfg.vector_db.chunk_size:
                 chunking_formatted_prompt = chunking_prompt.format_messages(text_segment=chunk.replace("\n", " "), ticker=elem["ticker"])
-                if random.random() < thresh:
-                    start = time.perf_counter()
-                    response = strctured_llm.invoke(chunking_formatted_prompt)
-                    split_chunks = response.llm_chunks
-                    timings.append(time.perf_counter() - end)
-                    in_tokens.append(response.response_metadata.get("prompt_eval_count", 0))
-                    out_tokens.append(response.response_metadata.get("eval_count", 0))
-                else:
-                    split_chunks = ["In late 2013, Wangchuk invented and built a prototype of the Ice Stupa which is an artificial glacier that stores the wasting stream waters during the winters in the form of giant ice cones or stupas, and releases the water during late spring as they start melting, which is the perfect time when the farmers need water.", "In 2014, he was appointed to the Expert panel for framing the J&K State Education Policy and Vision Document. Since 2015, Wangchuk has started working on establishing Himalayan Institute of Alternatives.", "He is concerned about how most of the Universities, especially those in the mountains have become irrelevant to realities of life."]
+                split_chunks = strctured_llm.invoke(chunking_formatted_prompt).llm_chunks
                 for split_chunk in split_chunks:
                     metadata = elem["metadata"] | {"type": "content", "section_summary": elem["summary"], "ticker": elem["ticker"]}
                     doc = Document(page_content=split_chunk, metadata=metadata, id=str(uuid4()))
                     decon_formatted_prompt = decon_prompt.format_messages(ticker=elem["ticker"], main_chunk=doc.page_content, chunk_context=get_decontexualization_context(doc))
-                    if random.random < thresh:
-                        start = time.perf_counter()
-                        response = llm.invoke(decon_formatted_prompt)
-                        timings.append(time.perf_counter() - end)
-                        in_tokens.append(response.response_metadata.get("prompt_eval_count", 0))
-                        out_tokens.append(response.response_metadata.get("eval_count", 0))
-                        doc.page_content = response.content
-                    else:
-                        doc.page_content = "Wangchuk has been helping in designing and overseeing the construction of several passive solar mud buildings in mountain regions like Ladakh, Sikkim and Nepal so that energy savings principles are implemented on a larger scale."
+                    doc.page_content = llm.invoke(decon_formatted_prompt).content
                     documents.append(doc)
             else:
                 metadata = elem["metadata"] | {"type": "content", "section_summary": elem["summary"], "ticker": elem["ticker"]}
                 doc = Document(page_content=chunk, metadata=metadata, id=elem["id"])
                 decon_formatted_prompt = decon_prompt.format_messages(ticker=elem["ticker"], main_chunk=doc.page_content, chunk_context=get_decontexualization_context(doc))
-                if random.random() < thresh:
-                    start = time.perf_counter()
-                    response = llm.invoke(decon_formatted_prompt).content
-                    timings.append(time.perf_counter() - end)
-                    in_tokens.append(response.response_metadata.get("prompt_eval_count", 0))
-                    out_tokens.append(response.response_metadata.get("eval_count", 0))
-                    doc.page_content = response.content
-                else:
-                    doc.page_content = "Wangchuk was instrumental in the launch of Operation New Hope in 1994, a collaboration of the government, village communities and the civil society to bring reforms in the government school system."
+                doc.page_content = llm.invoke(decon_formatted_prompt).content
                 documents.append(doc)
-    log.info(f"Number of normal calls: {num_normal_calls}")
-    log.info(f"Number of structured calls: {num_struct_calls}")
-    log.info(f"Number of tokens (should be same as total calls): {len(token_sizes)}")
-    log.info(f"Max token size: {max(token_sizes)}")
-    log.info(f"Num token sizes > 4096: {sum([1 if sz > 4096 else 0 for sz in token_sizes])}")
-    log.info(f"Num token sizes > 16384: {sum([1 if sz > 16384 else 0 for sz in token_sizes])}")
-    avg_out = np.mean(out_tokens)
-    avg_in = np.mean(in_tokens)
-    avg_tps = avg_out / np.mean(timings)
+    # now summaries at the end - no decontexualization for them since they are already expected to be decontexualised since they are summaries
+    for elem in json_data:
+        summary_metadata = elem["metadata"] | {"type": "summary", "ticker": elem["ticker"]}
+        summary_doc = Document(page_content=elem["summary"], metadata=summary_metadata, id=str(uuid4()))
+        documents.append(summary_doc)
 
-    print(f"Avg Output Tokens: {avg_out:.2f}")
-    print(f"Avg Input Tokens: {avg_in:.2f}")
-    print(f"Measured Speed: {avg_tps:.2f} tokens/sec")
-
-    total_hours = (30000 * avg_out) / (avg_tps * 3600)
-    print(f"Estimated time for 30k calls: {total_hours:.2f} hours")
-    # now metadata at the end - no decontexualization for them since they are already expected to be decontexualised since they are summaries
-    # for elem in json_data:
-    #     summary_metadata = elem["metadata"] | {"type": "summary", "ticker": elem["ticker"]}
-    #     summary_doc = Document(page_content=elem["summary"], metadata=summary_metadata, id=str(uuid4()))
-    #     documents.append(summary_doc)
-
-    # # add these documents to the vector db
-    # embedding_model = cfg.vector_db.embedding_model
-    # embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
-    # client = QdrantClient(path=cfg.vector_db.qdrant_path)
-    # 
-    # collection_name = cfg.vector_db.collection_name
-    # if not client.collection_exists(collection_name):
-    #     log.info(f"Creating collection '{collection_name}'...")
-    #     client.create_collection(
-    #         collection_name=collection_name,
-    #         vectors_config=VectorParams(size=client.get_embedding_size(embedding_model), distance=Distance.COSINE),
-    #     )
-    # else:
-    #     log.info(f"Collection '{collection_name}' already exists. Appending documents...")
-    # vector_store = QdrantVectorStore(client=client, collection_name=collection_name, embedding=embeddings)
-    # vector_store.add_documents(documents=docs)
+    # add these documents to the vector db
+    embedding_model = cfg.vector_db.embedding_model
+    embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
+    client = QdrantClient(path=cfg.vector_db.qdrant_path)
+    
+    collection_name = cfg.vector_db.collection_name
+    if not client.collection_exists(collection_name):
+        log.info(f"Creating collection '{collection_name}'...")
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=client.get_embedding_size(embedding_model), distance=Distance.COSINE),
+        )
+    else:
+        log.info(f"Collection '{collection_name}' already exists. Appending documents...")
+    vector_store = QdrantVectorStore(client=client, collection_name=collection_name, embedding=embeddings)
+    vector_store.add_documents(documents=docs)
 
 
 if __name__ == "__main__":
