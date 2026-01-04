@@ -25,7 +25,7 @@ num_splits_table_context: 3
 
 # this is where the json file containing the description of all the tables in the data
 # is stored
-table_descriptions_path: ${hydra.runtime.cwd}/misc/table_descriptions.json
+table_descriptions_path: ${hydra.runtime.cwd}/data/intermediate_files/table_descriptions.json
 
 # this is where the new markdown file which contains table descriptions instead of
 # actual tables, is written
@@ -33,4 +33,4 @@ processed_md_file_path: ${hydra.runtime.cwd}/data/sec_api/processed_md_files/{ti
 
 # this is where the json containing all the splits from all the files along with the
 # summary of each split, is stored
-header_splits_file_path: ${hydra.runtime.cwd}/misc/header_splits.json
+header_splits_file_path: ${hydra.runtime.cwd}/data/intermediate_files/header_splits.json
