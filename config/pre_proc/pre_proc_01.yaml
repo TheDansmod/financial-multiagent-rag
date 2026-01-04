@@ -1,0 +1,36 @@
+# the folder in which minerU should fill the outputs of parsing the PDF files
+mineru_folder_path: ${hydra.runtime.cwd}/data/sec_api/mineru/
+
+# the backend to use with minerU (option is pipeline - but need to change paths below)
+mineru_backend: vlm-transformers
+
+# this is where minerU writes the markdown generated from the input PDF file
+md_file_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/{ticker}.md
+
+# this is where minerU writes the content list generated from the input PDF file
+content_list_file_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/{ticker}_content_list.json
+
+# this is where minerU writes the images generated from the input PDF file
+images_folder_path: ${hydra.runtime.cwd}/data/sec_api/mineru/{ticker}/vlm/images/
+
+# tables in the minerU generated markdown files start with this tag
+md_table_start: <table>
+
+# tables in the minerU generated markdown files end with this tag
+md_table_end: </table>
+
+# when generating table summaries, this is the number of prior non-tabular splits that
+# are passed to the LLM for context
+num_splits_table_context: 3
+
+# this is where the json file containing the description of all the tables in the data
+# is stored
+table_descriptions_path: ${hydra.runtime.cwd}/misc/table_descriptions.json
+
+# this is where the new markdown file which contains table descriptions instead of
+# actual tables, is written
+processed_md_file_path: ${hydra.runtime.cwd}/data/sec_api/processed_md_files/{ticker}.md
+
+# this is where the json containing all the splits from all the files along with the
+# summary of each split, is stored
+header_splits_file_path: ${hydra.runtime.cwd}/misc/header_splits.json

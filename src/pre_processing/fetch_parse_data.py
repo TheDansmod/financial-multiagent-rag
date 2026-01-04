@@ -1,20 +1,18 @@
-r"""Fetch, clean, and pre-process the data to ensure it is ready for the agentic RAG.
+r"""Fetch the data and parse the obtained PDF files.
 
 1. Fetch Data: Obtain the pdf files of the SEC10K filings from SEC API using the free
    API limit.
 2. Parse PDFs: Parse the fetched pdf files into markdown and json so the are more
    easily ingested and processed by LLMs. We use the minerU library to do this.
 """
-import logging
-import hydra
-from dotenv import load_dotenv
-import hydra
-import subprocess
-from sec_api import PdfGeneratorApi
-from omegaconf import DictConfig
 
-load_dotenv()
+import logging
+import subprocess
+
+from sec_api import PdfGeneratorApi
+
 log = logging.getLogger(__name__)
+
 
 def fetch_data(cfg):
     r"""Fetch the PDF files for the SEC10K filings for the listed companies.
@@ -30,9 +28,9 @@ def fetch_data(cfg):
             f.write(content)
         log.info(f"Company {name} done.")
 
+
 def parse_pdf_files(cfg):
-    r"""Use the minerU library to parse the SEC10K pdf files to obtain markdown files,
-    table images, and json file with contents list.
+    r"""Parse SEC10K pdf files into markdown, contents list, images, using minerU.
 
     The backend can be specified to be either `vlm-transformers` or `pipeline`. I
     personally prefer the vlm backend since it is said to be more accurate, but it
@@ -52,22 +50,27 @@ def parse_pdf_files(cfg):
     """
     for ticker in cfg.data.companies:
         pdf_path = cfg.data.pdf_file_path.format(ticker=ticker.lower())
-        output_folder = cfg.data.mineru_folder_path
-        backend = cfg.data.mineru_backend
+        output_folder = cfg.pre_proc.mineru_folder_path
+        backend = cfg.pre_proc.mineru_backend
         command = ["mineru", "-p", pdf_path, "-o", output_folder, "-b", backend]
         try:
-            result = subprocess.run(command, check=True)
+            subprocess.run(command, check=True)
             log.info(f"MinerU parsed pdf file for {ticker}.")
         except subprocess.CalledProcessError as e:
             log.error(f"MinerU failed to parse pdf file for {ticker}. Continuing.")
             log.error(f"Error:\n{e.stderr}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    import hydra
+    from dotenv import load_dotenv
+    from omegaconf import DictConfig
+
+    load_dotenv()
     with hydra.initialize(version_base=None, config_path="../../config/"):
         cfg: DictConfig = hydra.compose(
             config_name="config", overrides=[], return_hydra_config=True
         )
     hydra.core.utils.configure_log(cfg.hydra.job_logging, cfg.hydra.verbose)
-    # create_header_split_file(cfg)
-    build_pre_processing_pipeline(cfg)
+    fetch_data(cfg)
+    parse_pdf_files(cfg)
