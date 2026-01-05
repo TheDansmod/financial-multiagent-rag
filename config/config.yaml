@@ -1,10 +1,11 @@
 defaults:
-  - override hydra/job_logging: colorlog
-  - override hydra/hydra_logging: colorlog
   - prompts: prompts_01
   - data: data_01
   - models: models_01
+  - pre_proc: pre_proc_01
   - _self_
+  - override hydra/job_logging: colorlog
+  - override hydra/hydra_logging: colorlog
 
 vector_db:
   chunk_size: 1024

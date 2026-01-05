@@ -9,13 +9,18 @@ description.
 """
 
 import base64
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
 import hydra
 from langchain_core.messages import HumanMessage
+
+from src.utils.utils import (
+    append_to_json_list_file,
+    get_newline_split_markdown,
+    load_from_json_list_file,
+)
 
 log = logging.getLogger(__name__)
 
@@ -108,9 +113,11 @@ def _process_company_tables(cfg: Any, ticker: str) -> None:
     json_descriptions_path = Path(cfg.pre_proc.table_descriptions_path)
 
     # load and prepare data
-    split_text = _read_and_clean_markdown(md_path)
-    content_list = _load_json(content_list_path, fail_on_error=True)
-    json_descriptions = _load_json(json_descriptions_path, fail_on_error=False)
+    split_text = get_newline_split_markdown(md_path)
+    content_list = load_from_json_list_file(content_list_path, fail_on_error=True)
+    json_descriptions = load_from_json_list_file(
+        json_descriptions_path, fail_on_error=False
+    )
 
     # validate data integrity
     _validate_table_consistency(cfg, ticker, split_text, content_list)
@@ -163,28 +170,7 @@ def _process_company_tables(cfg: Any, ticker: str) -> None:
             "Split": segment,
             "Table Description": table_description,
         }
-        _append_result_to_file(cfg.pre_proc.table_descriptions_path, result_entry)
-
-
-def _read_and_clean_markdown(path: Path) -> List[str]:
-    """Read markdown file and split by double newlines, trimming whitespace."""
-    with open(path, "r", encoding="utf-8") as f:
-        # split by double newline to separate paragraphs/tables
-        splits = f.read().split("\n\n")
-    return [s.strip() for s in splits]
-
-
-def _load_json(path: Path, fail_on_error: bool = False) -> List[Dict[str, Any]]:
-    """Load JSON content from a file."""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        if fail_on_error:
-            log.error(f"Error while loading json: {repr(e)}.\nFailing.")
-            raise Exception(f"Error while loading json file with path {path}")
-        else:
-            log.error(f"Error while loading json: {repr(e)}\nContinuing anyway.")
+        append_to_json_list_file(cfg.pre_proc.table_descriptions_path, result_entry)
 
 
 def _validate_table_consistency(
@@ -260,25 +246,6 @@ def _format_context_string(caption: str, footnote: str, text_context: str) -> st
     return "\n".join(parts)
 
 
-def _append_result_to_file(file_path: str, entry: Dict[str, Any]) -> None:
-    """Append a single record to the JSON list file.
-
-    This is inefficient (Read-Modify-Write) but is robust to crashes and gives some
-    time between successive LLM calls to prevent exceeding the rate limit
-    """
-    path = Path(file_path)
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = []
-
-    data.append(entry)
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f)
-
-
 def populate_markdown(cfg):
     r"""Replace the tables in the markdown files with the downloaded descriptions.
 
@@ -287,7 +254,9 @@ def populate_markdown(cfg):
     in the markdown file with their descriptions.
     """
     json_descriptions_path = Path(cfg.pre_proc.table_descriptions_path)
-    json_descriptions = _load_json(json_descriptions_path, fail_on_error=True)
+    json_descriptions = load_from_json_list_file(
+        json_descriptions_path, fail_on_error=True
+    )
     table_lookup = {
         (descr["Ticker"], descr["Index"]): descr
         for descr in json_descriptions
@@ -301,7 +270,7 @@ def populate_markdown(cfg):
         proc_md_path = Path(
             cfg.pre_proc.processed_md_file_path.format(ticker=ticker.lower())
         )
-        split_text = _read_and_clean_markdown(md_path)
+        split_text = get_newline_split_markdown(md_path)
         proc_split_text = [
             table_lookup[(ticker, idx)] if cfg.pre_proc.table_start in split else split
             for idx, split in enumerate(split_text)
