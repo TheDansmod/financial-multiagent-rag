@@ -21,7 +21,7 @@ def get_llm_provider(name, *args, **kwargs):
         return ChatGoogleGenerativeAI
 
 
-def append_to_json_list_file(file_path, entry):
+def append_to_json_list_file(file_path: str, entry):
     """Append a single record to the JSON list file.
 
     This is inefficient (Read-Modify-Write) but is robust to crashes and gives some
@@ -35,7 +35,7 @@ def append_to_json_list_file(file_path, entry):
         json.dump(data, f)
 
 
-def load_from_json_list_file(path, fail_on_error=False):
+def load_from_json_list_file(path: Path | str, fail_on_error=False):
     """Load JSON content from a file."""
     try:
         with open(path, "r", encoding="utf-8") as f:

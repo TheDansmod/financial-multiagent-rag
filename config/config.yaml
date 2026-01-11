@@ -8,10 +8,10 @@ defaults:
   - override hydra/hydra_logging: colorlog
 
 vector_db:
-  chunk_size: 1024
-  chunk_overlap: 200
+  chunk_size: 512
+  chunk_overlap: 128
   embedding_model: sentence-transformers/all-MiniLM-L6-v2
-  collection_name: sec_10k
+  collection_name: sec_10k_19_Jan
   qdrant_path: ${hydra.runtime.cwd}/qdrant_db
 
 hydra:
