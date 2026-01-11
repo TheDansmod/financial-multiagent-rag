@@ -32,13 +32,11 @@ header_section_summary: |
 
   The section of text is:
   {text_section}
-supervisor_node: 
-  system_prompt_template: |
+supervisor_node: |
     You are a financial analyst.
     Analyse the following user query and classify it: {user_query}.
-    Provide a classification for the user query including query type (simple, comparison, or complex), and query companies which should indicate the companies that are involved in the query. If any company could be involved in the query, then don't list any company.
-planner_node:
-  system_prompt_template: |
+    Provide a classification for the user query including query type (simple, comparison, or complex), and query companies which should indicate the companies that are involved in the query. If any company could be involved in the query, then list the company as `any`.
+planner_node: |
     You are a financial analyst.
     Analyse the following user query and generate sub-queries for it: {user_query}.
     Breakdown the provided user query into a list of simple sub-queries, which, when answered, would together answer the posed user query. Each simple sub-query should be related to exactly one company.

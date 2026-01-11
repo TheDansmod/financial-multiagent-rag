@@ -21,3 +21,9 @@ decontextualization:
   _target_: src.utils.utils.get_llm_provider
   name: mistral-large-latest
   temp: 0.2
+
+# to serve as the various agents in the RAG graph
+analyst:
+  _target_: src.utils.utils.get_llm_provider
+  name: llama3.1
+  temp: 0.2

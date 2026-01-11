@@ -12,3 +12,4 @@ utils.log
 .env
 misc_exploration.log
 decon_make_db.log
+rag_agent.log
